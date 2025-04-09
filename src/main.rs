@@ -41,6 +41,7 @@ struct YGOCard {
     text: CardDescription,
     data: Option<CardAttribute>,
     #[serde(skip_deserializing)]
+    #[allow(dead_code)]
     is_extra: bool,
 }
 
@@ -52,6 +53,8 @@ fn is_extra(card: &YGOCard) -> bool {
 async fn insert_card(pool: &PgPool, card: &YGOCard) -> Result<(), sqlx::Error> {
     let text = &card.text;
     let data = card.data.as_ref();
+
+    let mut tx = pool.begin().await?;
 
     sqlx::query!(
         r#"
@@ -90,8 +93,10 @@ async fn insert_card(pool: &PgPool, card: &YGOCard) -> Result<(), sqlx::Error> {
         data.map(|d| d.attribute),
         is_extra(card),
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(())
 }
@@ -130,7 +135,6 @@ async fn main() -> Result<()> {
             for card in cards.values() {
                 insert_card(&pg_pool, card).await?;
             }
-            println!("Insert {} cards", cards.len());
             break;
         }
     }
