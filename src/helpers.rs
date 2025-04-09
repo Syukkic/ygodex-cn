@@ -24,18 +24,23 @@ pub async fn get_md5(md5_url: &str) -> Result<String> {
         .context("MD5 checksum not found in response")
 }
 
-pub async fn download_and_insert_cards(pool: &PgPool) -> Result<()> {
-    let ygo_card_zip_url = "https://ygocdb.com/api/v0/cards.zip";
+pub async fn download_cards_archiver(
+    ygo_card_zip_url: &str,
+) -> Result<ZipArchive<Cursor<Vec<u8>>>> {
     let response = reqwest::get(ygo_card_zip_url)
         .await
         .context("Failed to get cards.zip")?
         .bytes()
         .await
-        .context("Failed to read cards.zip content")?;
-
+        .context("Failed to read cards.zip content")?
+        .to_vec();
     let cursor = Cursor::new(response);
-    let mut archive = ZipArchive::new(cursor)?;
+    let archive = ZipArchive::new(cursor).context("Failed to open zip archive")?;
 
+    Ok(archive)
+}
+
+pub async fn insert_cards(pool: &PgPool, mut archive: ZipArchive<Cursor<Vec<u8>>>) -> Result<()> {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
         let name = file.name().to_owned();
@@ -55,13 +60,16 @@ pub async fn download_and_insert_cards(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_and_update_id(pool: &PgPool) -> Result<()> {
-    let id_change_log_url = "https://ygocdb.com/api/v0/idChangelog.jsonp";
+pub async fn fetch_id_change_log(id_change_log_url: &str) -> Result<HashMap<String, i64>> {
     let response = reqwest::get(id_change_log_url).await?.text().await?;
     let changelog: HashMap<String, i64> =
         serde_json::from_str(&response).context("Failed to parse IdChangeLog")?;
 
-    update_id_change_log(pool, changelog).await?;
+    Ok(changelog)
+}
+
+pub async fn update_cards_id(pool: &PgPool, id_change_log: HashMap<String, i64>) -> Result<()> {
+    update_id_change_log(pool, id_change_log).await?;
 
     Ok(())
 }
