@@ -152,6 +152,26 @@ async fn insert_card(pool: &PgPool, card: &YGOCard) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+async fn update_id_change_log(pool: &PgPool, changlog: HashMap<String, i64>) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    for (old_id_string, new_id) in changlog {
+        if let Ok(old_id) = old_id_string.parse::<i64>() {
+            sqlx::query!(
+                // TODO impl update id while it had changed
+                r#"UPDATE ygo_cards SET id = $1 WHERE id = $2"#,
+                new_id,
+                old_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            println!("{} -> {}", old_id, new_id);
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv()?;
@@ -172,7 +192,6 @@ async fn main() -> Result<()> {
 
     if needs_update {
         let ygo_card_zip_url = "https://ygocdb.com/api/v0/cards.zip";
-
         let response = reqwest::get(ygo_card_zip_url)
             .await
             .context("Failed to get cards.zip")?
@@ -199,6 +218,13 @@ async fn main() -> Result<()> {
                 break;
             }
         }
+        // Insert first, update later ?
+        let id_change_log_url = "https://ygocdb.com/api/v0/idChangelog.jsonp";
+        let response = reqwest::get(id_change_log_url).await?.text().await?;
+        let changelog: HashMap<String, i64> =
+            serde_json::from_str(&response).context("Failed to parse IdChangeLog")?;
+
+        update_id_change_log(&pg_pool, changelog).await?;
         UpdateChecker::update_record(&pg_pool, &remote_md5, Utc::now()).await?;
         println!("Update completed.")
     } else {
