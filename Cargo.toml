@@ -24,11 +24,3 @@ zip = "2.6.1"
 
 [dev-dependencies]
 wiremock = "0.6.3"
-
-
-[profile.release]
-opt-level = "z"
-lto = true
-strip = true
-panic = "abort"
-codegen-units = 1
